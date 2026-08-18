@@ -1,4 +1,4 @@
-const CACHE_NAME = 'carecap-cache-v1';
+const CACHE_NAME = 'carecap-cache-v2'; // อัปเดตเลขเวอร์ชันทุกครั้งที่แก้ webapp เพื่อบังคับให้ browser ดึงไฟล์ใหม่ (แก้ปัญหา cache ค้าง)
 const APP_SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (event) => {
