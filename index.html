@@ -110,11 +110,28 @@
   #fallBanner {
     display: none;
     background: var(--status-critical); color: #fff;
-    padding: 14px 16px; border-radius: 14px; margin-bottom: 16px;
-    font-weight: 700; font-size: 15px;
-    align-items: center; gap: 10px;
+    padding: 18px 18px; border-radius: 14px; margin-bottom: 16px;
+    font-weight: 800; font-size: 17px;
+    align-items: center; gap: 12px; justify-content: space-between;
+    box-shadow: 0 0 0 3px rgba(208,59,59,0.35);
   }
-  #fallBanner.show { display: flex; }
+  #fallBanner.show { display: flex; animation: fall-pulse 1s ease-in-out infinite; }
+  #fallBanner .fb-text { display: flex; align-items: center; gap: 10px; }
+  #fallBanner .fb-icon { font-size: 26px; animation: fall-shake .6s ease-in-out infinite; }
+  #fallMuteBtn {
+    background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.6); color: #fff;
+    border-radius: 8px; padding: 8px 12px; font-size: 12.5px; font-weight: 700; cursor: pointer;
+    white-space: nowrap; flex-shrink: 0;
+  }
+  @keyframes fall-pulse {
+    0%, 100% { background: var(--status-critical); box-shadow: 0 0 0 3px rgba(208,59,59,0.35); }
+    50%      { background: #a52424; box-shadow: 0 0 0 7px rgba(208,59,59,0.15); }
+  }
+  @keyframes fall-shake {
+    0%, 100% { transform: rotate(0deg); }
+    25%      { transform: rotate(-12deg); }
+    75%      { transform: rotate(12deg); }
+  }
 
   .risk-card { display: flex; flex-direction: column; align-items: center; text-align: center; }
 
@@ -199,7 +216,10 @@
       </div>
     </div>
 
-    <div id="fallBanner">🚨 ตรวจพบการหกล้ม! กรุณาตรวจสอบผู้สวมใส่ทันที</div>
+    <div id="fallBanner">
+      <span class="fb-text"><span class="fb-icon">🚨</span> ตรวจพบการหกล้ม! กรุณาตรวจสอบผู้สวมใส่ทันที</span>
+      <button id="fallMuteBtn">🔇 ปิดเสียง</button>
+    </div>
 
     <div class="card risk-card">
       <h2>สถานะอุณหภูมิร่างกาย</h2>
@@ -285,6 +305,7 @@
     enableNotif: document.getElementById('enableNotif'),
     themeToggle: document.getElementById('themeToggle'),
     fallBanner: document.getElementById('fallBanner'),
+    fallMuteBtn: document.getElementById('fallMuteBtn'),
     zoneIcon: document.getElementById('zoneIcon'),
     zoneLabel: document.getElementById('zoneLabel'),
     zoneSublabel: document.getElementById('zoneSublabel'),
@@ -367,6 +388,7 @@
     if ('Notification' in window) {
       Notification.requestPermission();
     }
+    unlockAudio(); // ใช้จังหวะที่ผู้ใช้กดปุ่มนี้ (มี user gesture) ปลดล็อกเสียงเตือนไปพร้อมกันเลย
   });
 
   function maybeNotify(level) {
@@ -379,6 +401,76 @@
       new Notification('Care Cap AI แจ้งเตือน', { body: msg, icon: 'icon-192.png' });
     }
     lastNotifiedLevel = level;
+  }
+
+  // ---------------- เสียงเตือน + สั่น เมื่อตรวจพบการล้ม ----------------
+  // ใช้ Web Audio API สร้างเสียงปี๊บเอง (ไม่ต้องโหลดไฟล์เสียงจาก CDN ภายนอก จึงไม่มีปัญหาเน็ต/CORS
+  // เหมือนที่เจอกับ Chart.js และยังทำงานได้แม้ออฟไลน์ เพราะเสียงสร้างจากโค้ดล้วนๆ)
+  let audioCtx = null;
+  let fallAlarmTimer = null;
+  let fallAlarmMuted = false;
+  let wasFalling = false;
+
+  function unlockAudio() {
+    if (!audioCtx) {
+      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  }
+  // เบราว์เซอร์ส่วนใหญ่ห้ามเล่นเสียงอัตโนมัติจนกว่าจะมีการโต้ตอบจากผู้ใช้ (autoplay policy)
+  // ดักคลิก/แตะครั้งแรกที่หน้าเว็บไว้ปลดล็อกเสียงล่วงหน้า เผื่อผู้ใช้ไม่ได้กดปุ่มเปิดแจ้งเตือนก่อน
+  document.addEventListener('click', unlockAudio, { once: true });
+  document.addEventListener('touchstart', unlockAudio, { once: true });
+
+  function beep(freq, durationMs, delaySec) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = freq;
+    gain.gain.value = 0.25;
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    const t0 = audioCtx.currentTime + (delaySec || 0);
+    osc.start(t0);
+    osc.stop(t0 + durationMs / 1000);
+  }
+
+  function playFallAlarmOnce() {
+    unlockAudio();
+    if (audioCtx) {
+      beep(880, 180, 0);
+      beep(880, 180, 0.3);
+      beep(880, 180, 0.6);
+    }
+    if (navigator.vibrate) navigator.vibrate([250, 120, 250, 120, 250]);
+  }
+
+  function startFallAlarmLoop() {
+    if (fallAlarmTimer) return;
+    if (!fallAlarmMuted) playFallAlarmOnce();
+    fallAlarmTimer = setInterval(() => {
+      if (!fallAlarmMuted) playFallAlarmOnce();
+    }, 8000); // เตือนซ้ำทุก 8 วินาที จนกว่าจะกด "ปิดเสียง" หรือสถานะล้มหายไป
+  }
+
+  function stopFallAlarmLoop() {
+    if (fallAlarmTimer) { clearInterval(fallAlarmTimer); fallAlarmTimer = null; }
+  }
+
+  els.fallMuteBtn.addEventListener('click', () => {
+    fallAlarmMuted = true;
+    stopFallAlarmLoop();
+  });
+
+  function handleFallAlarmState(isFall) {
+    if (isFall && !wasFalling) {
+      fallAlarmMuted = false; // เหตุการณ์ล้มใหม่ ให้เตือนใหม่เสมอแม้เพิ่งกดปิดเสียงจากรอบก่อน
+      startFallAlarmLoop();
+    } else if (!isFall && wasFalling) {
+      stopFallAlarmLoop();
+    }
+    wasFalling = isFall;
   }
 
   // ---------------- JSONP polling (เลี่ยงปัญหา CORS ของ Apps Script) ----------------
@@ -510,6 +602,7 @@
 
     const isFall = latest.fall_detected === true || latest.risk_level === 'FALL_DETECTED';
     els.fallBanner.classList.toggle('show', isFall);
+    handleFallAlarmState(isFall);
 
     maybeNotify(latest.risk_level);
 
