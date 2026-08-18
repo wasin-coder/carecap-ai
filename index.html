@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2a78d6">
+<title>Care Cap AI — เฝ้าระวังฮีทสโตรก</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page-plane:     #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --gridline:       #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6; /* body temp */
+    --series-2:       #eb6834; /* ambient temp */
+    --status-good:     #0ca30c;
+    --status-warning:  #fab219;
+    --status-serious:  #ec835a;
+    --status-critical: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page-plane:     #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --gridline:       #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-1:       #3987e5;
+      --series-2:       #d95926;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page-plane:     #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --gridline:       #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-1:       #3987e5;
+    --series-2:       #d95926;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--page-plane);
+    color: var(--text-primary);
+  }
+  body { padding-bottom: 40px; }
+
+  header {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px;
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 700; }
+  .conn-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+  .dot.online { background: var(--status-good); }
+  .dot.offline { background: var(--status-critical); }
+  .icon-btn {
+    border: 1px solid var(--border); background: var(--surface-1); color: var(--text-primary);
+    border-radius: 8px; padding: 6px 10px; font-size: 14px; cursor: pointer;
+  }
+  .header-actions { display: flex; gap: 8px; align-items: center; }
+
+  main { max-width: 720px; margin: 0 auto; padding: 16px; }
+
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); margin: 0 0 12px; font-weight: 600; }
+
+  #settingsPanel { display: none; }
+  #settingsPanel.open { display: block; }
+  #settingsPanel label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; }
+  #settingsPanel input[type=text] {
+    width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--page-plane); color: var(--text-primary); font-size: 14px; margin-bottom: 10px;
+  }
+  #settingsPanel .row { display: flex; gap: 8px; }
+  .btn-primary {
+    background: var(--series-1); color: #fff; border: none; border-radius: 8px;
+    padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+
+  #fallBanner {
+    display: none;
+    background: var(--status-critical); color: #fff;
+    padding: 14px 16px; border-radius: 14px; margin-bottom: 16px;
+    font-weight: 700; font-size: 15px;
+    align-items: center; gap: 10px;
+  }
+  #fallBanner.show { display: flex; }
+
+  .risk-card { display: flex; flex-direction: column; align-items: center; text-align: center; }
+
+  .zone-icon { width: 96px; height: 96px; color: var(--text-muted); transition: color .4s ease; }
+  .zone-label { font-size: 20px; font-weight: 700; margin: 8px 0 2px; }
+  .zone-sublabel { font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; }
+
+  .risk-detail-toggle {
+    background: none; border: none; color: var(--text-secondary); font-size: 12px;
+    cursor: pointer; text-decoration: underline; padding: 0 0 4px;
+  }
+  .risk-detail { display: none; width: 100%; margin-top: 10px; }
+  .risk-detail.open { display: block; }
+  .risk-hero { font-size: 40px; font-weight: 700; line-height: 1; margin: 4px 0; }
+  .risk-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 700; color: #fff;
+    margin-bottom: 14px;
+  }
+  .meter-track {
+    width: 100%; height: 14px; border-radius: 999px; overflow: hidden;
+    background: var(--gridline); margin-top: 6px;
+  }
+  .meter-fill { height: 100%; border-radius: 999px; transition: width .4s ease, background .4s ease; }
+
+  .trend-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+  .trend-stat { text-align: center; }
+  .trend-stat .n { font-size: 22px; font-weight: 700; }
+  .trend-stat .l { font-size: 11px; color: var(--text-secondary); }
+  .risk-factor {
+    border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 10px;
+  }
+  .risk-factor .rf-title { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+  .risk-factor .rf-detail { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+  .risk-factor ul { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--text-secondary); }
+  .risk-factor ul li { margin-bottom: 2px; }
+  .disclaimer-note {
+    font-size: 11.5px; color: var(--text-muted); border-top: 1px solid var(--gridline);
+    padding-top: 10px; margin-top: 6px; line-height: 1.5;
+  }
+
+  .stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .stat-tile .stat-label { font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
+  .stat-tile .stat-value { font-size: 28px; font-weight: 700; }
+  .stat-tile .stat-value .unit { font-size: 14px; font-weight: 500; color: var(--text-secondary); }
+
+  .legend-row { display: flex; gap: 16px; font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
+
+  canvas { width: 100% !important; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--gridline); color: var(--text-secondary); white-space: nowrap; }
+  th { color: var(--text-muted); font-weight: 600; }
+  .table-wrap { overflow-x: auto; max-height: 260px; overflow-y: auto; }
+
+  .empty-note { color: var(--text-muted); font-size: 13px; text-align: center; padding: 20px 0; }
+  footer { text-align: center; color: var(--text-muted); font-size: 12px; padding: 20px; }
+</style>
+</head>
+<body class="viz-root">
+
+  <header>
+    <h1>🧢 Care Cap AI</h1>
+    <div class="header-actions">
+      <div class="conn-status"><span id="connDot" class="dot"></span><span id="connText">ยังไม่เชื่อมต่อ</span></div>
+      <button class="icon-btn" id="themeToggle" title="สลับโหมดสี">◐</button>
+      <button class="icon-btn" id="settingsToggle" title="ตั้งค่า">⚙</button>
+    </div>
+  </header>
+
+  <main>
+
+    <div class="card" id="settingsPanel">
+      <h2>ตั้งค่าการเชื่อมต่อ</h2>
+      <label for="scriptUrl">Google Apps Script Web App URL</label>
+      <input type="text" id="scriptUrl" placeholder="https://script.google.com/macros/s/xxxx/exec">
+      <div class="row">
+        <button class="btn-primary" id="saveSettings">บันทึก</button>
+        <button class="icon-btn" id="enableNotif">🔔 เปิดการแจ้งเตือน</button>
+      </div>
+    </div>
+
+    <div id="fallBanner">🚨 ตรวจพบการหกล้ม! กรุณาตรวจสอบผู้สวมใส่ทันที</div>
+
+    <div class="card risk-card">
+      <h2>สถานะอุณหภูมิร่างกาย</h2>
+
+      <svg id="zoneIcon" class="zone-icon" viewBox="0 0 100 170" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <!-- รูปร่างกายคน (ตัวหลัก) -->
+        <circle cx="50" cy="24" r="16" fill="currentColor"/>
+        <path d="M50 46 C26 46 14 68 14 96 L14 140 C14 146 19 150 25 150 L34 150 L34 164 C34 167 37 170 40 170 L60 170 C63 170 66 167 66 164 L66 150 L75 150 C81 150 86 146 86 140 L86 96 C86 68 74 46 50 46 Z" fill="currentColor"/>
+        <!-- หัวใจตรงกลางลำตัว -->
+        <path d="M50 82 C47 76 39 76 37 84 C35 91 43 98 50 104 C57 98 65 91 63 84 C61 76 53 76 50 82 Z" fill="#ffffff"/>
+      </svg>
+      <div class="zone-label" id="zoneLabel">รอข้อมูล</div>
+      <div class="zone-sublabel" id="zoneSublabel">ยังไม่มีข้อมูลจากเซนเซอร์</div>
+
+      <button class="risk-detail-toggle" id="riskDetailToggle">แสดงคะแนนความเสี่ยงแบบละเอียด ▾</button>
+      <div class="risk-detail" id="riskDetail">
+        <div class="risk-hero" id="riskScore">--</div>
+        <div class="risk-badge" id="riskBadge" style="background:var(--text-muted);">รอข้อมูล</div>
+        <div class="meter-track"><div class="meter-fill" id="meterFill" style="width:0%; background:var(--text-muted);"></div></div>
+      </div>
+    </div>
+
+    <div class="stat-row">
+      <div class="card stat-tile">
+        <div class="stat-label">อุณหภูมิร่างกาย</div>
+        <div class="stat-value"><span id="tempObject">--</span><span class="unit">°C</span></div>
+      </div>
+      <div class="card stat-tile">
+        <div class="stat-label">อุณหภูมิแวดล้อม</div>
+        <div class="stat-value"><span id="tempAmbient">--</span><span class="unit">°C</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>แนวโน้มอุณหภูมิ</h2>
+      <div class="legend-row">
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--series-1)"></span>อุณหภูมิร่างกาย</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--series-2)"></span>อุณหภูมิแวดล้อม</div>
+      </div>
+      <canvas id="tempChart" height="180"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>แนวโน้มคะแนนความเสี่ยง (0–100)</h2>
+      <canvas id="riskChart" height="180"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>ตารางข้อมูลย้อนหลัง</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>เวลา</th><th>อุณหภูมิร่างกาย</th><th>อุณหภูมิแวดล้อม</th><th>ล้ม</th><th>Risk</th><th>ระดับ</th></tr></thead>
+          <tbody id="historyTableBody"><tr><td colspan="6" class="empty-note">ยังไม่มีข้อมูล</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" id="analysisCard">
+      <h2>วิเคราะห์แนวโน้มระยะยาว · ปัจจัยเสี่ยงโรคในอนาคต</h2>
+      <div class="trend-summary" id="trendSummary"></div>
+      <div id="riskFactorsList"><div class="empty-note">กำลังวิเคราะห์ข้อมูล…</div></div>
+      <div class="disclaimer-note" id="analysisDisclaimer"></div>
+    </div>
+
+  </main>
+
+  <footer>Care Cap AI — โครงงานหมวกป้องกันฮีทสโตรก · ข้อมูลอัปเดตทุก 4 วินาที</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  const STORAGE_KEY = 'carecap_script_url';
+  const POLL_MS = 4000;
+
+  const els = {
+    connDot: document.getElementById('connDot'),
+    connText: document.getElementById('connText'),
+    settingsToggle: document.getElementById('settingsToggle'),
+    settingsPanel: document.getElementById('settingsPanel'),
+    scriptUrl: document.getElementById('scriptUrl'),
+    saveSettings: document.getElementById('saveSettings'),
+    enableNotif: document.getElementById('enableNotif'),
+    themeToggle: document.getElementById('themeToggle'),
+    fallBanner: document.getElementById('fallBanner'),
+    zoneIcon: document.getElementById('zoneIcon'),
+    zoneLabel: document.getElementById('zoneLabel'),
+    zoneSublabel: document.getElementById('zoneSublabel'),
+    riskDetailToggle: document.getElementById('riskDetailToggle'),
+    riskDetail: document.getElementById('riskDetail'),
+    riskScore: document.getElementById('riskScore'),
+    riskBadge: document.getElementById('riskBadge'),
+    meterFill: document.getElementById('meterFill'),
+    tempObject: document.getElementById('tempObject'),
+    tempAmbient: document.getElementById('tempAmbient'),
+    historyTableBody: document.getElementById('historyTableBody'),
+    trendSummary: document.getElementById('trendSummary'),
+    riskFactorsList: document.getElementById('riskFactorsList'),
+    analysisDisclaimer: document.getElementById('analysisDisclaimer'),
+  };
+
+  const STATUS_COLORS = {
+    good: getCss('--status-good'),
+    warning: getCss('--status-warning'),
+    serious: getCss('--status-serious'),
+    critical: getCss('--status-critical'),
+  };
+
+  // โซนตามอุณหภูมิร่างกาย: เขียว (ปกติ, <38°C) / ส้ม (เริ่มเสี่ยง, 38-39.9°C) / แดง (อันตราย, >=40°C)
+  // FALL_DETECTED ใช้สีแดงเช่นกัน แต่ข้อความแยกต่างหาก (มีแบนเนอร์ล้มซ้อนอยู่แล้ว)
+  const LEVEL_MAP = {
+    GREEN:         { status: 'good',     label: 'อุณหภูมิปกติ',        sub: '30–37°C',        icon: '✓' },
+    ORANGE:        { status: 'serious',  label: 'เริ่มเสี่ยง',          sub: '38–39°C',         icon: '⚠' },
+    RED:           { status: 'critical', label: 'อันตราย เสี่ยงฮีทสโตรก', sub: '40°C ขึ้นไป',   icon: '⛔' },
+    FALL_DETECTED: { status: 'critical', label: 'ตรวจพบการล้ม',        sub: 'กรุณาตรวจสอบทันที', icon: '🚨' },
+  };
+
+  function getCss(varName) {
+    return getComputedStyle(document.querySelector('.viz-root')).getPropertyValue(varName).trim();
+  }
+
+  // ---------------- Theme toggle ----------------
+  els.themeToggle.addEventListener('click', () => {
+    const root = document.documentElement;
+    const current = root.getAttribute('data-theme');
+    root.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
+  });
+
+  // ---------------- แสดง/ซ่อนคะแนนความเสี่ยงแบบละเอียด ----------------
+  els.riskDetailToggle.addEventListener('click', () => {
+    const open = els.riskDetail.classList.toggle('open');
+    els.riskDetailToggle.textContent = open
+      ? 'ซ่อนคะแนนความเสี่ยงแบบละเอียด ▴'
+      : 'แสดงคะแนนความเสี่ยงแบบละเอียด ▾';
+  });
+
+  // ---------------- Settings ----------------
+  function loadScriptUrl() {
+    return localStorage.getItem(STORAGE_KEY) || '';
+  }
+  function saveScriptUrl(url) {
+    localStorage.setItem(STORAGE_KEY, url);
+  }
+
+  els.settingsToggle.addEventListener('click', () => {
+    els.settingsPanel.classList.toggle('open');
+  });
+  els.saveSettings.addEventListener('click', () => {
+    saveScriptUrl(els.scriptUrl.value.trim());
+    els.settingsPanel.classList.remove('open');
+    poll();
+    pollAnalysis();
+  });
+
+  const savedUrl = loadScriptUrl();
+  if (savedUrl) {
+    els.scriptUrl.value = savedUrl;
+  } else {
+    els.settingsPanel.classList.add('open');
+  }
+
+  // ---------------- Notifications ----------------
+  let lastNotifiedLevel = null;
+  els.enableNotif.addEventListener('click', () => {
+    if ('Notification' in window) {
+      Notification.requestPermission();
+    }
+  });
+
+  function maybeNotify(level) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const isUrgent = level === 'RED' || level === 'FALL_DETECTED';
+    if (isUrgent && level !== lastNotifiedLevel) {
+      const msg = level === 'FALL_DETECTED'
+        ? 'ตรวจพบการหกล้ม! กรุณาตรวจสอบทันที'
+        : 'อุณหภูมิร่างกายอยู่ในระดับอันตราย (≥40°C) เสี่ยงฮีทสโตรก';
+      new Notification('Care Cap AI แจ้งเตือน', { body: msg, icon: 'icon-192.png' });
+    }
+    lastNotifiedLevel = level;
+  }
+
+  // ---------------- JSONP polling (เลี่ยงปัญหา CORS ของ Apps Script) ----------------
+  let jsonpCounter = 0;
+  function jsonpRequest(url, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const cbName = 'carecap_cb_' + (jsonpCounter++) + '_' + Date.now();
+      const script = document.createElement('script');
+      const cleanup = () => {
+        delete window[cbName];
+        if (script.parentNode) script.parentNode.removeChild(script);
+        clearTimeout(timer);
+      };
+      const timer = setTimeout(() => { cleanup(); reject(new Error('timeout')); }, timeoutMs || 8000);
+      window[cbName] = (data) => { cleanup(); resolve(data); };
+      script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName;
+      script.onerror = () => { cleanup(); reject(new Error('network error')); };
+      document.body.appendChild(script);
+    });
+  }
+
+  // ---------------- Charts ----------------
+  // สร้างกราฟแบบป้องกันข้อผิดพลาด: ถ้า Chart.js โหลดจาก CDN ไม่สำเร็จ (เช่น ยังไม่เชื่อมเน็ตครั้งแรก)
+  // ส่วนอื่นของแอป (มิเตอร์ความเสี่ยง, ตาราง, การแจ้งเตือน) ต้องยังทำงานได้ตามปกติ
+  let tempChart = null;
+  let riskChart = null;
+  const chartsAvailable = typeof Chart !== 'undefined';
+
+  if (chartsAvailable) {
+    try {
+      tempChart = new Chart(document.getElementById('tempChart'), {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            { label: 'ร่างกาย', data: [], borderColor: getCss('--series-1'), backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: 0.25 },
+            { label: 'แวดล้อม', data: [], borderColor: getCss('--series-2'), backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: 0.25 },
+          ],
+        },
+        options: chartOptions(false),
+      });
+
+      riskChart = new Chart(document.getElementById('riskChart'), {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            { label: 'Risk score', data: [], borderColor: getCss('--series-1'), backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: 0.25, fill: false },
+          ],
+        },
+        options: chartOptions(true),
+      });
+    } catch (e) {
+      tempChart = null;
+      riskChart = null;
+    }
+  } else {
+    console.warn('Chart.js โหลดไม่สำเร็จ (ต้องมีอินเทอร์เน็ตในครั้งแรก) — ส่วนกราฟจะไม่แสดง แต่ข้อมูลอื่นยังทำงานปกติ');
+  }
+
+  function chartOptions(isRisk) {
+    return {
+      responsive: true,
+      animation: false,
+      plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { grid: { color: getCss('--gridline') }, ticks: { color: getCss('--text-muted'), maxTicksLimit: 6 } },
+        y: {
+          grid: { color: getCss('--gridline') },
+          ticks: { color: getCss('--text-muted') },
+          min: isRisk ? 0 : undefined,
+          max: isRisk ? 100 : undefined,
+        },
+      },
+    };
+  }
+
+  function fmtTime(iso) {
+    try {
+      const d = new Date(iso);
+      return d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch (e) { return iso; }
+  }
+
+  // ---------------- Render ----------------
+  function render(payload) {
+    const latest = payload.latest;
+    const history = payload.history || [];
+
+    if (!latest) {
+      els.riskScore.textContent = '--';
+      return;
+    }
+
+    const levelInfo = LEVEL_MAP[latest.risk_level] || LEVEL_MAP.GREEN;
+    const color = STATUS_COLORS[levelInfo.status];
+
+    // ไอคอนร่างกาย+หัวใจ: เปลี่ยนสีตามโซนอุณหภูมิ (เขียว/ส้ม/แดง)
+    els.zoneIcon.style.color = color;
+    els.zoneLabel.textContent = levelInfo.icon + ' ' + levelInfo.label;
+    els.zoneLabel.style.color = color;
+    els.zoneSublabel.textContent = levelInfo.sub + ' · อ่านค่าล่าสุด ' + Number(latest.temp_object).toFixed(1) + '°C';
+
+    els.riskScore.textContent = latest.risk_score;
+    els.riskBadge.textContent = levelInfo.icon + ' ' + levelInfo.label;
+    els.riskBadge.style.background = color;
+    els.meterFill.style.width = Math.max(4, latest.risk_score) + '%';
+    els.meterFill.style.background = color;
+
+    els.tempObject.textContent = Number(latest.temp_object).toFixed(1);
+    els.tempAmbient.textContent = Number(latest.temp_ambient).toFixed(1);
+
+    const isFall = latest.fall_detected === true || latest.risk_level === 'FALL_DETECTED';
+    els.fallBanner.classList.toggle('show', isFall);
+
+    maybeNotify(latest.risk_level);
+
+    // Charts (เฉพาะถ้า Chart.js โหลดสำเร็จ)
+    if (tempChart && riskChart) {
+      const labels = history.map((r) => fmtTime(r.timestamp));
+      tempChart.data.labels = labels;
+      tempChart.data.datasets[0].data = history.map((r) => Number(r.temp_object));
+      tempChart.data.datasets[1].data = history.map((r) => Number(r.temp_ambient));
+      tempChart.update('none');
+
+      riskChart.data.labels = labels;
+      riskChart.data.datasets[0].data = history.map((r) => Number(r.risk_score));
+      riskChart.update('none');
+    }
+
+    // Table (แสดงล่าสุดก่อน)
+    const rows = history.slice().reverse().slice(0, 50).map((r) => {
+      const lvl = LEVEL_MAP[r.risk_level] || LEVEL_MAP.GREEN;
+      return '<tr><td>' + fmtTime(r.timestamp) + '</td><td>' + Number(r.temp_object).toFixed(1) +
+        '</td><td>' + Number(r.temp_ambient).toFixed(1) + '</td><td>' + (r.fall_detected ? 'ล้ม' : '-') +
+        '</td><td>' + r.risk_score + '</td><td>' + lvl.label + '</td></tr>';
+    });
+    els.historyTableBody.innerHTML = rows.length ? rows.join('') : '<tr><td colspan="6" class="empty-note">ยังไม่มีข้อมูล</td></tr>';
+  }
+
+  // ---------------- Poll loop ----------------
+  let pollTimer = null;
+  async function poll() {
+    const url = loadScriptUrl();
+    if (!url) {
+      setConn(false, 'ยังไม่ได้ตั้งค่า URL');
+      return;
+    }
+    try {
+      const data = await jsonpRequest(url + '?limit=100');
+      if (data.status === 'ok') {
+        setConn(true, 'เชื่อมต่อแล้ว');
+        render(data);
+      } else {
+        setConn(false, 'เซิร์ฟเวอร์ผิดพลาด');
+      }
+    } catch (e) {
+      setConn(false, 'เชื่อมต่อไม่ได้');
+    }
+  }
+
+  function setConn(ok, text) {
+    els.connDot.className = 'dot ' + (ok ? 'online' : 'offline');
+    els.connText.textContent = text;
+  }
+
+  function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    poll();
+    pollTimer = setInterval(poll, POLL_MS);
+  }
+
+  // ---------------- วิเคราะห์แนวโน้มระยะยาว (ดึงไม่บ่อย เพราะสแกนข้อมูลทั้งหมดใน Sheet) ----------------
+  const ANALYSIS_POLL_MS = 5 * 60 * 1000; // ทุก 5 นาที
+  let analysisTimer = null;
+
+  function renderAnalysis(analysis) {
+    if (!analysis || !analysis.total_readings) {
+      els.trendSummary.innerHTML = '';
+      els.riskFactorsList.innerHTML = '<div class="empty-note">' + ((analysis && analysis.message) || 'ยังไม่มีข้อมูลเพียงพอ') + '</div>';
+      els.analysisDisclaimer.textContent = '';
+      return;
+    }
+
+    els.trendSummary.innerHTML =
+      '<div class="trend-stat"><div class="n">' + analysis.total_readings + '</div><div class="l">จำนวนข้อมูลที่วิเคราะห์</div></div>' +
+      '<div class="trend-stat"><div class="n">' + analysis.avg_temp_object + '°C</div><div class="l">อุณหภูมิเฉลี่ย</div></div>' +
+      '<div class="trend-stat"><div class="n">' + analysis.fall_count + '</div><div class="l">จำนวนครั้งที่ล้ม</div></div>';
+
+    els.riskFactorsList.innerHTML = analysis.risk_factors.map((rf) => {
+      const risks = (rf.possible_future_risks || []).map((x) => '<li>' + x + '</li>').join('');
+      return '<div class="risk-factor">' +
+        '<div class="rf-title">' + rf.factor + '</div>' +
+        '<div class="rf-detail">' + rf.detail + '</div>' +
+        (risks ? '<ul>' + risks + '</ul>' : '') +
+        '</div>';
+    }).join('');
+
+    els.analysisDisclaimer.textContent = analysis.disclaimer || '';
+  }
+
+  async function pollAnalysis() {
+    const url = loadScriptUrl();
+    if (!url) return;
+    try {
+      const data = await jsonpRequest(url + '?action=analysis', 15000);
+      if (data.status === 'ok') renderAnalysis(data.analysis);
+    } catch (e) {
+      // เงียบไว้ ไม่รบกวนผู้ใช้ถ้าการวิเคราะห์ดึงไม่สำเร็จรอบนี้ จะลองใหม่รอบถัดไป
+    }
+  }
+
+  function startAnalysisPolling() {
+    if (analysisTimer) clearInterval(analysisTimer);
+    pollAnalysis();
+    analysisTimer = setInterval(pollAnalysis, ANALYSIS_POLL_MS);
+  }
+
+  startPolling();
+  startAnalysisPolling();
+
+  // ---------------- Service worker ----------------
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
+})();
+</script>
+
+</body>
+</html>
